@@ -1,0 +1,160 @@
+(Due to technical issues, the search service is temporarily unavailable.)
+
+Here’s a curated set of **practical problems** aligned with Chapters 1–6 of Sutton & Barto, designed to solidify core RL concepts using Gymnasium. Each problem builds on the previous one and directly connects to theoretical foundations. I’ll explain the pedagogical purpose of each problem and how it reinforces key ideas.
+
+---
+
+### **Problem 1: Value Iteration on FrozenLake (Chapter 3 – MDPs)**  
+**Environment**: `FrozenLake-v1` (deterministic, 4x4 grid)  
+**Objective**: Implement value iteration to compute the optimal value function and policy.  
+
+**Why This Matters**:  
+- Reinforces understanding of **MDP dynamics** (states, actions, transitions, rewards).  
+- Connects theory (Bellman optimality equation) to code.  
+- Demonstrates how value functions encode long-term consequences of actions.  
+
+**Steps**:  
+1. Initialize a value table `V(s)` with zeros.  
+2. Iterate until convergence:  
+   - Update each state’s value using:  
+     \[
+     V(s) \leftarrow \max_a \sum_{s'} P(s'|s,a) [R(s,a,s') + \gamma V(s')]
+     \]  
+   - Use Gymnasium’s `env.P` to access transition probabilities.  
+3. Derive the optimal policy from `V(s)` using argmax over actions.  
+4. Validate by running the policy in the environment.  
+
+**Key Insight**:  
+Value iteration directly implements the Bellman optimality equation (Chapter 3.6). Observing how `V(s)` propagates rewards backward from the goal solidifies the concept of **bootstrapping**.
+
+---
+
+### **Problem 2: Policy Iteration for Taxi-v3 (Chapter 4 – Dynamic Programming)**  
+**Environment**: `Taxi-v3` (small state space: 500 states)  
+**Objective**: Implement policy iteration (policy evaluation + policy improvement).  
+
+**Why This Matters**:  
+- Illustrates the **policy improvement theorem** (Chapter 4.2).  
+- Shows how alternating evaluation and improvement converges to optimality.  
+- Highlights computational tradeoffs between policy iteration and value iteration.  
+
+**Steps**:  
+1. Initialize a random policy `π(s)`.  
+2. **Policy Evaluation**:  
+   - Iteratively compute `V^π(s)` using:  
+     \[
+     V_{k+1}(s) \leftarrow \sum_a \pi(a|s) \sum_{s'} P(s'|s,a) [R(s,a,s') + \gamma V_k(s')]
+     \]  
+   - Stop when `max(|V_{k+1} - V_k|) < θ` (e.g., θ=1e-4).  
+3. **Policy Improvement**:  
+   - Update policy greedily:  
+     \[
+     \pi'(s) \leftarrow \arg\max_a \sum_{s'} P(s'|s,a) [R(s,a,s') + \gamma V^π(s')]
+     \]  
+4. Repeat until policy stabilizes.  
+
+**Key Insight**:  
+Policy iteration separates **prediction** (evaluation) and **control** (improvement), mirroring the structure of Chapter 4. Taxi’s small state space allows manual inspection of intermediate policies.
+
+---
+
+### **Problem 3: Monte Carlo Prediction for Blackjack (Chapter 5 – Monte Carlo Methods)**  
+**Environment**: `Blackjack-v1` (stochastic, episodic)  
+**Objective**: Use first-visit MC to estimate the state-value function `V(s)` for a fixed policy (e.g., "stick on 20").  
+
+**Why This Matters**:  
+- Teaches **model-free prediction** (no transition probabilities).  
+- Demonstrates how MC averages returns over episodes (Chapter 5.1).  
+- Highlights the impact of **exploring starts** (or lack thereof).  
+
+**Steps**:  
+1. Define a policy (e.g., "stick if sum ≥ 18, else hit").  
+2. Generate episodes by following the policy.  
+3. For each state `s` **first visited** in an episode:  
+   - Compute the return `G` from that state onward.  
+   - Update `V(s)` as a running average:  
+     \[
+     V(s) \leftarrow V(s) + \frac{1}{N(s)} (G - V(s))
+     \]  
+4. Plot `V(s)` for usable ace vs. no usable ace.  
+
+**Key Insight**:  
+MC prediction relies on **complete episodes**, making it unsuitable for non-terminating tasks. Compare results with/without exploring starts to see why the latter is critical for accurate `V(s)`.
+
+---
+
+### **Problem 4: SARSA vs. Q-Learning on CliffWalking (Chapter 6 – Temporal Difference)**  
+**Environment**: `CliffWalking-v0` (4x12 grid with cliff edges)  
+**Objective**: Implement SARSA (on-policy) and Q-learning (off-policy) to compare their policies and convergence.  
+
+**Why This Matters**:  
+- Contrasts **on-policy** (SARSA) and **off-policy** (Q-learning) TD control (Chapter 6.4–6.5).  
+- Shows how exploration (ε-greedy) affects safety vs. optimality.  
+- Illustrates the "cliff edge" tradeoff: SARSA learns safer paths, Q-learning learns optimal but riskier paths.  
+
+**Steps**:  
+1. Initialize `Q(s,a)` table with zeros.  
+2. For SARSA:  
+   - Update using:  
+     \[
+     Q(s,a) \leftarrow Q(s,a) + \alpha [r + \gamma Q(s',a') - Q(s,a)]
+     \]  
+   - Choose `a'` via ε-greedy.  
+3. For Q-learning:  
+   - Update using:  
+     \[
+     Q(s,a) \leftarrow Q(s,a) + \alpha [r + \gamma \max_{a'} Q(s',a') - Q(s,a)]
+     \]  
+4. Compare final policies (plot paths) and learning curves (steps per episode).  
+
+**Key Insight**:  
+Q-learning’s max operator leads to **optimism under uncertainty**, while SARSA respects exploration noise. This aligns with Theorem 6.3 (convergence of Q-learning under GLIE conditions).
+
+---
+
+### **Problem 5: Windy Gridworld with TD(λ) (Chapter 7 Preview)**  
+**Environment**: Custom Windy Gridworld (from your code)  
+**Objective**: Extend SARSA to SARSA(λ) with eligibility traces.  
+
+**Why This Matters**:  
+- Introduces **eligibility traces** (Chapter 7) while building on TD concepts.  
+- Shows how λ balances MC (λ=1) and TD(0) (λ=0).  
+- Windy Gridworld’s delayed rewards make λ useful for credit assignment.  
+
+**Steps**:  
+1. Add an eligibility trace table `e(s,a)`.  
+2. For SARSA(λ):  
+   - On each step, update `e(s,a) = γλ e(s,a) + 1` (accumulating traces).  
+   - Update all `Q(s,a)` proportionally to `e(s,a)` and TD error.  
+3. Compare learning speed with λ=0 (SARSA) vs. λ=0.9.  
+
+**Key Insight**:  
+Eligibility traces propagate credit backward more efficiently, particularly in environments where actions have **long-term consequences** (e.g., wind effects).
+
+---
+
+### **Design Choices & Pedagogical Value**  
+1. **Progressive Complexity**:  
+   - Starts with small, deterministic MDPs (FrozenLake) and progresses to stochastic tasks (Blackjack).  
+   - Each problem introduces a new algorithm family (DP → MC → TD → TD(λ)).  
+
+2. **Gymnasium Synergy**:  
+   - Uses built-in environments to avoid environment-coding distractions.  
+   - Leverages `env.P` and `env.step` to focus on algorithms.  
+
+3. **Conceptual Bridges**:  
+   - Value iteration → Policy iteration (DP vs. DP).  
+   - MC → TD (episodic vs. incremental updates).  
+   - On-policy → Off-policy (SARSA vs. Q-learning).  
+
+4. **Visualization**:  
+   - Plotting value functions (Problem 3) and learning curves (Problem 4) connects abstract math to concrete behavior.  
+
+---
+
+### **Implementation Tips**  
+- For value/policy iteration, use numpy arrays for `V(s)` and `Q(s,a)`.  
+- For MC/TD methods, use dictionaries to track returns or eligibility traces.  
+- Use `gymnasium.wrappers.RecordEpisodeStatistics` to log performance.  
+
+These problems will force you to grapple with the core ideas in Chapters 1–6 while producing tangible results. Let me know if you’d like code templates for any of them!

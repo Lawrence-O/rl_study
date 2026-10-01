@@ -1,0 +1,15 @@
+# Local credentials and workspace configuration
+/.aws/
+/.codex/
+/.agents/
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/

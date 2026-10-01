@@ -1,0 +1,417 @@
+import numpy as np
+import random
+import matplotlib.pyplot as plt
+
+# -----------------------------
+# Racetrack Environment Class
+# -----------------------------
+class RacetrackEnv:
+    def __init__(self, racetrack_map):
+        """
+        Initializes the Racetrack environment.
+
+        Args:
+            racetrack_map: A 2D list or numpy array representing the racetrack.
+                           Values:
+                           0: Track
+                           1: Boundary
+                           2: Start Line
+                           3: Finish Line
+        """
+        self.racetrack = np.array(racetrack_map)
+        self.start_line_positions = []
+        self.finish_line_positions = []
+        self._extract_start_finish_lines()
+        self.current_state = None  # (position (x,y), velocity (vx,vy))
+
+    def _extract_start_finish_lines(self):
+        """
+        Extracts start (2) and finish (3) line positions.
+        We treat positions as (x, y) with x=column index, y=row index.
+        """
+        rows, cols = np.where(self.racetrack == 2)
+        self.start_line_positions = list(zip(cols, rows))
+        rows, cols = np.where(self.racetrack == 3)
+        self.finish_line_positions = list(zip(cols, rows))
+
+    def reset(self):
+        """
+        Resets the environment: selects a random start line position and sets velocity to (0,0).
+        Returns:
+            state: ((x, y), (vx, vy))
+        """
+        start = random.choice(self.start_line_positions)
+        self.current_state = (start, (0, 0))
+        return self.current_state
+
+    def get_possible_actions(self):
+        """
+        Returns a list of possible actions.
+        Each action is a velocity increment (dvx, dvy) where each component can be -1, 0, or 1.
+        """
+        actions = []
+        for dvx in [-1, 0, 1]:
+            for dvy in [-1, 0, 1]:
+                actions.append((dvx, dvy))
+        return actions
+
+    def _bresenham_line(self, start, end):
+        """
+        Returns a list of grid cells between start and end using Bresenham's line algorithm.
+        """
+        x0, y0 = start
+        x1, y1 = end
+        dx = abs(x1 - x0)
+        dy = abs(y1 - y0)
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        err = dx - dy
+        cells = []
+        while True:
+            cells.append((x0, y0))
+            if x0 == x1 and y0 == y1:
+                break
+            e2 = 2 * err
+            if e2 > -dy:
+                err -= dy
+                x0 += sx
+            if e2 < dx:
+                err += dx
+                y0 += sy
+        return cells
+
+    def _check_path_collision(self, start_pos, end_pos):
+        """
+        Checks if the straight path from start_pos to end_pos collides with a boundary or crosses finish.
+        Returns:
+            (collision_type, finish_line_crossed):
+              collision_type: 'boundary' if collision, else None.
+              finish_line_crossed: True if finish line is crossed along the path.
+        """
+        # Use Bresenham's algorithm to get intermediate cells
+        cells = self._bresenham_line(start_pos, end_pos)
+        finish_crossed = False
+        for (x, y) in cells:
+            # Check for out-of-bound indices
+            if x < 0 or y < 0 or y >= self.racetrack.shape[0] or x >= self.racetrack.shape[1]:
+                return 'boundary', False
+            cell_val = self.racetrack[y, x]  # Note: y=row, x=column
+            if cell_val == 1:
+                return 'boundary', False
+            if cell_val == 3:
+                finish_crossed = True
+        return None, finish_crossed
+
+    def step(self, action):
+        """
+        Executes one time step.
+        Args:
+            action: (dvx, dvy) velocity increments.
+        Returns:
+            (next_state, reward, done, info)
+            next_state: ((x,y), (vx, vy))
+            reward: -1 per time step, +1 if finish is reached.
+            done: True if finish line is crossed, False otherwise.
+            info: Additional info.
+        """
+        dvx, dvy = action
+        # With probability 0.1, override action (stochastic failure)
+        if random.random() < 0.1:
+            dvx, dvy = 0, 0
+
+        (x, y), (vx, vy) = self.current_state
+        new_vx = vx + dvx
+        new_vy = vy + dvy
+        # Ensure velocity bounds: 0 <= vx, vy < 5, and not both 0 unless starting
+        new_vx = max(0, min(new_vx, 4))
+        new_vy = max(0, min(new_vy, 4))
+        if new_vx == 0 and new_vy == 0 and (x, y) not in self.start_line_positions:
+            # If not on the start line, force at least one velocity component to be nonzero.
+            new_vx = 1
+
+        start_pos = (x, y)
+        end_pos = (x + new_vx, y + new_vy)
+
+        collision, finish_crossed = self._check_path_collision(start_pos, end_pos)
+        if collision == 'boundary':
+            # Collision: reset to a random start position, velocity = (0,0)
+            new_start = random.choice(self.start_line_positions)
+            self.current_state = (new_start, (0, 0))
+            return self.current_state, -1, False, {"collision": "boundary"}
+        elif finish_crossed:
+            # Finish line reached
+            self.current_state = (end_pos, (new_vx, new_vy))
+            return self.current_state, 1, True, {"finish": True}
+        else:
+            # Valid move
+            self.current_state = (end_pos, (new_vx, new_vy))
+            return self.current_state, -1, False, {}
+
+    def render(self):
+        """
+        Prints a text-based representation of the racetrack.
+        """
+        grid = []
+        for row in range(self.racetrack.shape[0]):
+            grid_row = []
+            for col in range(self.racetrack.shape[1]):
+                val = self.racetrack[row, col]
+                if val == 1:
+                    grid_row.append('#')
+                elif val == 2:
+                    grid_row.append('S')
+                elif val == 3:
+                    grid_row.append('F')
+                else:
+                    grid_row.append('.')
+            grid.append(grid_row)
+
+        # Mark current position of the car
+        (x, y), _ = self.current_state
+        if 0 <= y < len(grid) and 0 <= x < len(grid[0]):
+            grid[y][x] = 'C'
+
+        for row in grid:
+            print(''.join(row))
+        print()
+
+    def render_matplotlib(self, trajectory=None):
+        """
+        Renders the racetrack using matplotlib. Optionally, plots a trajectory.
+        """
+        plt.figure(figsize=(6, 6))
+        cmap = plt.cm.get_cmap('Set3', 4)
+        plt.imshow(self.racetrack, cmap=cmap, origin='upper')
+        if trajectory:
+            xs = [state[0][0] for state in trajectory]
+            ys = [state[0][1] for state in trajectory]
+            plt.plot(xs, ys, marker='o', color='blue')
+        plt.title("Racetrack Environment")
+        plt.show()
+
+
+# -----------------------------
+# Monte Carlo Agent Class
+# -----------------------------
+class MCAgent:
+    def __init__(self, possible_actions):
+        """
+        Initializes the Monte Carlo Agent.
+
+        Args:
+            possible_actions: List of possible actions (velocity increments).
+        """
+        self.possible_actions = possible_actions
+        self.q_values = {}  # dictionary: { (state_str, action_str): value }
+        self.C = {}         # cumulative weights for importance sampling: { (state_str, action_str): cumulative_weight }
+        self.policy = {}    # target (greedy) policy: { state_str: action }
+        # For off-policy, behavior policy is epsilon-soft; we use epsilon-greedy for behavior.
+    
+    def _get_state_str(self, state):
+        """
+        Convert state (position, velocity) into a string for dictionary keys.
+        """
+        pos, vel = state
+        return f"{pos[0]}_{pos[1]}_{vel[0]}_{vel[1]}"
+
+    def _get_action_str(self, action):
+        """
+        Convert action (dvx, dvy) into a string for dictionary keys.
+        """
+        return f"{action[0]}_{action[1]}"
+
+    def choose_action(self, state, policy_type='behavior', epsilon=0.1):
+        """
+        Choose an action using either the behavior or target policy.
+        Behavior policy: epsilon-greedy.
+        Target policy: greedy.
+        """
+        state_str = self._get_state_str(state)
+        if policy_type == 'behavior':
+            # Epsilon-greedy: with probability epsilon, choose random; otherwise, choose best (if available)
+            if random.random() < epsilon or state_str not in self.policy:
+                return random.choice(self.possible_actions)
+            else:
+                return self.policy[state_str]
+        elif policy_type == 'target':
+            # Target policy is greedy
+            if state_str in self.policy and self.policy[state_str] is not None:
+                return self.policy[state_str]
+            else:
+                return random.choice(self.possible_actions)
+        else:
+            raise ValueError("policy_type must be 'behavior' or 'target'.")
+
+    def run_episode(self, env, policy_type='behavior', epsilon=0.1):
+        """
+        Generates an episode using the behavior policy.
+        Returns a list of (state, action, reward, behavior_prob) tuples.
+        """
+        episode = []
+        state = env.reset()
+        done = False
+        while not done:
+            action = self.choose_action(state, policy_type=policy_type, epsilon=epsilon)
+            next_state, reward, done, info = env.step(action)
+            # Compute behavior probability:
+            # For epsilon-greedy, probability for chosen action:
+            state_str = self._get_state_str(state)
+            greedy_action = self.policy.get(state_str, None)
+            if greedy_action is None or action != greedy_action:
+                behavior_prob = epsilon / len(self.possible_actions)
+            else:
+                behavior_prob = (1 - epsilon) + (epsilon / len(self.possible_actions))
+            episode.append((state, action, reward, behavior_prob))
+            state = next_state
+        return episode
+
+    def off_policy_mc_control(self, env, num_episodes, epsilon=0.1, discount=1.0):
+        """
+        Off-policy Monte Carlo control with weighted importance sampling.
+        Updates Q-values and the target policy.
+        """
+        for ep in range(num_episodes):
+            episode = self.run_episode(env, policy_type='behavior', epsilon=epsilon)
+            G = 0
+            W = 1
+            # Process episode in reverse order:
+            for t in range(len(episode)-1, -1, -1):
+                state_t, action_t, reward_t, b_prob = episode[t]
+                state_str = self._get_state_str(state_t)
+                action_str = self._get_action_str(action_t)
+                key = (state_str, action_str)
+                G = discount * G + reward_t
+
+                # For the target policy (greedy), the probability is 1 if the action is greedy, 0 otherwise.
+                target_action = self.choose_action(state_t, policy_type='target', epsilon=epsilon)
+                pi_prob = 1.0 if action_t == target_action else 0.0
+
+                # Avoid division by zero (b_prob should be > 0 by design)
+                if b_prob == 0:
+                    break
+                rho = pi_prob / b_prob
+                W *= rho
+
+                # If W becomes zero, we stop the update
+                if W == 0:
+                    break
+
+                # Initialize Q and C for the state-action pair if not present
+                if key not in self.q_values:
+                    self.q_values[key] = 0.0
+                if key not in self.C:
+                    self.C[key] = 0.0
+                self.C[key] += W
+                # Incremental update of Q-value using weighted importance sampling
+                self.q_values[key] += (W / self.C[key]) * (G - self.q_values[key])
+
+                # Update target policy for this state
+                best_action = None
+                best_q = -float('inf')
+                for a in self.possible_actions:
+                    test_key = (state_str, self._get_action_str(a))
+                    q_val = self.q_values.get(test_key, 0.0)
+                    if q_val > best_q:
+                        best_q = q_val
+                        best_action = a
+                self.policy[state_str] = best_action
+
+                # If the target policy would not have chosen the taken action, stop further updates
+                if pi_prob == 0:
+                    break
+            # Optionally print debugging info for each episode
+            if (ep+1) % 100 == 0:
+                print(f"Episode {ep+1} completed.")
+        print("Off-policy Monte Carlo control finished.")
+
+    def get_optimal_trajectory(self, env, num_steps=100):
+        """
+        Generates a trajectory using the target (greedy) policy (without exploration).
+        """
+        trajectory = []
+        state = env.reset()
+        trajectory.append(state)
+        done = False
+        steps = 0
+        while not done and steps < num_steps:
+            action = self.choose_action(state, policy_type='target', epsilon=0.0)  # pure greedy
+            state, reward, done, info = env.step(action)
+            trajectory.append(state)
+            steps += 1
+        return trajectory
+
+# -----------------------------
+# Helper function to load racetrack map from file
+# -----------------------------
+def load_racetrack_map(map_file):
+    """
+    Loads the racetrack map from a file.
+    File format: each character represents a cell:
+      ' ' : Track (0)
+      '#' : Boundary (1)
+      'S' : Start Line (2)
+      'F' : Finish Line (3)
+    Returns a 2D list.
+    """
+    racetrack_map = []
+    with open(map_file, 'r') as f:
+        for line in f:
+            row = []
+            for char in line.strip():
+                if char == ' ':
+                    row.append(0)
+                elif char == '#':
+                    row.append(1)
+                elif char == 'S':
+                    row.append(2)
+                elif char == 'F':
+                    row.append(3)
+                else:
+                    raise ValueError(f"Invalid character: {char}")
+            racetrack_map.append(row)
+    return racetrack_map
+
+# -----------------------------
+# Main script
+# -----------------------------
+if __name__ == "__main__":
+    # Define a simple racetrack map as a list of strings (you can save this in a file if you want)
+    racetrack_map = [
+        "############",
+        "#        F##",
+        "#        F##",
+        "#        F##",
+        "#        F##",
+        "#SSSS    F##",
+        "############"
+    ]
+    
+    # Convert racetrack_map (list of strings) to a list of lists of integers
+    racetrack_map_data = []
+    mapping = {' ': 0, '#': 1, 'S': 2, 'F': 3}
+    for line in racetrack_map:
+        racetrack_map_data.append([mapping[char] for char in line])
+    
+    # Create the environment
+    env = RacetrackEnv(racetrack_map_data)
+    
+    # Create the agent with possible actions (9 actions: increments in [-1, 0, 1] for each velocity component)
+    possible_actions = env.get_possible_actions()
+    agent = MCAgent(possible_actions)
+    
+    # Debug: Reset environment and render initial state
+    state = env.reset()
+    print("Initial state:", state)
+    env.render()
+    
+    # Train the agent with off-policy Monte Carlo control
+    num_episodes = 500
+    agent.off_policy_mc_control(env, num_episodes, epsilon=0.1, discount=1.0)
+    
+    # Get and render optimal trajectory
+    trajectory = agent.get_optimal_trajectory(env, num_steps=100)
+    print("Optimal trajectory (states):")
+    for st in trajectory:
+        print(st)
+    env.render()
+    env.render_matplotlib(trajectory)
